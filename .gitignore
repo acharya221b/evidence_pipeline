@@ -1,4 +1,5 @@
 outputs copy/
+outputs/
 pipeline_copy.py
 dashboard_old.py
 __pycache__/
