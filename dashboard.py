@@ -359,53 +359,147 @@ with tab2:
         st.plotly_chart(fig_comp, use_container_width=True)
 
     with col2:
-        st.subheader("Average Evidence Distribution by Route")
-        st.caption("Shows the average number of evidence used for each route. Switch between filters to see if models change their research strategy when they get an answer wrong.")
-        
-        outcome_filter = st.radio("Filter by Answer Outcome:", ('All', 'Correct', 'Incorrect'), horizontal=True, key='outcome_filter')
-        
-        df_to_analyze = filtered_df.copy()
-        if outcome_filter == 'Correct': df_to_analyze = filtered_df[filtered_df['Is Correct']]
-        elif outcome_filter == 'Incorrect': df_to_analyze = filtered_df[~filtered_df['Is Correct']]
+        st.subheader("Average Evidence Count: Correct vs. Incorrect")
+        st.caption("Stacked bar shows citation count by route. Incorrect answers are faded for easy comparison.")
 
         all_routes_raw = ['dense_def_faiss', 'kg_semantic_name_only', 'kg_sui_concept_def']
         plot_data = []
         
-        for model in selected_models:
-            model_df = df_to_analyze[df_to_analyze['Model'] == model]
-            num_questions = len(model_df)
-            if num_questions == 0: continue
+        # Calculate Averages for both Correct and Incorrect
+        for outcome in ['Correct', 'Incorrect']:
+            df_to_analyze = filtered_df[filtered_df['Is Correct']] if outcome == 'Correct' else filtered_df[~filtered_df['Is Correct']]
+            
+            for model in selected_models:
+                model_df = df_to_analyze[df_to_analyze['Model'] == model]
+                num_q = len(model_df)
+                if num_q == 0: continue
 
-            all_routes_for_model = [route for sublist in model_df['Used Routes'] for route in sublist]
-            route_counts = Counter(all_routes_for_model)
-
-            for route in all_routes_raw:
-                total_route_citations = route_counts.get(route, 0)
-                avg_count = total_route_citations / num_questions
-                if avg_count > 0:
-                    plot_data.append({'Model': model, 'Route': route, 'Avg. Evidence Count': avg_count})
+                route_counts = Counter([r for sublist in model_df['Used Routes'] for r in sublist])
+                for route in all_routes_raw:
+                    avg_count = route_counts.get(route, 0) / num_q
+                    if avg_count > 0:
+                        plot_data.append({
+                            'Model': model,
+                            'Outcome': outcome,
+                            'Route': route,
+                            'Avg. Evidence Count': avg_count
+                        })
 
         if plot_data:
             plot_df = pd.DataFrame(plot_data)
+            
             route_map_display = {
                 'dense_def_faiss': 'Dense Retrieval (Vector)',
                 'kg_sui_concept_def': 'KG Traversal',
                 'kg_semantic_name_only': 'KG Entity Match (Name)'
             }
-            plot_df['Route'] = plot_df['Route'].map(route_map_display)
+            plot_df['Route_Display'] = plot_df['Route'].map(route_map_display)
 
+            # Create Faceted Stacked Bar
             fig_avg = px.bar(
-                plot_df, x='Model', y='Avg. Evidence Count', color='Route',
-                barmode='stack', text='Avg. Evidence Count',
-                title=f"Avg Citations by Route- {selected_task} - {outcome_filter} Answers",
+                plot_df, 
+                x='Model', 
+                y='Avg. Evidence Count', 
+                color='Route_Display',
+                facet_col='Outcome', 
+                barmode='stack', 
+                text='Avg. Evidence Count',
+                title=f"{selected_task}- Avg Citations per Question (Correct vs Incorrect)",
                 color_discrete_map=ROUTE_COLORS
             )
-            fig_avg.update_traces(texttemplate='%{text:.2f}', textposition='outside', cliponaxis=False)
-            fig_avg.update_layout(yaxis_title="Total Avg Citations Used", margin=dict(t=50, b=50, l=50, r=50), uniformtext_minsize=8, uniformtext_mode='hide')
+            
+            # --- FIX: Apply Opacity to Incorrect Bars safely ---
+            # Plotly creates traces where the 'name' is the Route, but we need to know the facet (Outcome).
+            # The easiest way to apply formatting per-facet is using for_each_trace
+            for trace in fig_avg.data:
+                # Plotly stores the facet information in the xaxis/yaxis mapping internally,
+                # but 'legendgroup' often contains the color variable, and 'xaxis' contains the subplot.
+                # A safer way to handle opacity in facet plots is to map it via an explicit column, 
+                # but since we want the legend to stay clean, we use a manual data match.
+                
+                # Because Plotly groups traces by color (Route), we must update the marker color array directly
+                # based on the underlying data points for that trace.
+                # Note: px.bar handles opacity natively if we just tell it to!
+                pass # We will handle opacity via update_traces below for simplicity
+
+            # Apply Opacity using Plotly's powerful selector
+            # 'col=2' targets the second facet column (which is 'Incorrect' if 'Correct' is col 1)
+            # This is much safer than parsing trace names.
+            fig_avg.update_traces(marker=dict(opacity=0.7), selector=dict(xaxis='x2'))
+
+            # Formatting (Bold & Outside labels)
+            fig_avg.update_traces(
+                texttemplate='%{text:.2f}', 
+                textposition='outside', 
+                cliponaxis=False
+            )
+            
+            fig_avg.update_layout(
+                yaxis_title="Total Avg Citations Used",
+                font=dict(size=14, color="black"),
+                title_font=dict(size=20, weight='bold'),
+                margin=dict(t=80, b=50, l=50, r=50)
+            )
+            
+            # Bold Annotations (The titles above each facet: "Outcome=Correct")
+            fig_avg.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1], font=dict(size=16, weight='bold')))
+            
+            # Bold Axis Labels
+            fig_avg.update_xaxes(tickfont=dict(weight='bold', size=12), title_font=dict(weight='bold', size=14))
+            fig_avg.update_yaxes(tickfont=dict(weight='bold', size=12), title_font=dict(weight='bold', size=14))
+            
             st.plotly_chart(fig_avg, use_container_width=True)
-        
         else:
-            st.info(f"No '{outcome_filter}' answers to display for this selection.")
+            st.info("Insufficient data to compare Correct vs. Incorrect evidence recipes.")
+
+    # with col2:
+    #     st.subheader("Average Evidence Distribution by Route")
+    #     st.caption("Shows the average number of evidence used for each route. Switch between filters to see if models change their research strategy when they get an answer wrong.")
+        
+    #     outcome_filter = st.radio("Filter by Answer Outcome:", ('All', 'Correct', 'Incorrect'), horizontal=True, key='outcome_filter')
+        
+    #     df_to_analyze = filtered_df.copy()
+    #     if outcome_filter == 'Correct': df_to_analyze = filtered_df[filtered_df['Is Correct']]
+    #     elif outcome_filter == 'Incorrect': df_to_analyze = filtered_df[~filtered_df['Is Correct']]
+
+    #     all_routes_raw = ['dense_def_faiss', 'kg_semantic_name_only', 'kg_sui_concept_def']
+    #     plot_data = []
+        
+    #     for model in selected_models:
+    #         model_df = df_to_analyze[df_to_analyze['Model'] == model]
+    #         num_questions = len(model_df)
+    #         if num_questions == 0: continue
+
+    #         all_routes_for_model = [route for sublist in model_df['Used Routes'] for route in sublist]
+    #         route_counts = Counter(all_routes_for_model)
+
+    #         for route in all_routes_raw:
+    #             total_route_citations = route_counts.get(route, 0)
+    #             avg_count = total_route_citations / num_questions
+    #             if avg_count > 0:
+    #                 plot_data.append({'Model': model, 'Route': route, 'Avg. Evidence Count': avg_count})
+
+    #     if plot_data:
+    #         plot_df = pd.DataFrame(plot_data)
+    #         route_map_display = {
+    #             'dense_def_faiss': 'Dense Retrieval (Vector)',
+    #             'kg_sui_concept_def': 'KG Traversal',
+    #             'kg_semantic_name_only': 'KG Entity Match (Name)'
+    #         }
+    #         plot_df['Route'] = plot_df['Route'].map(route_map_display)
+
+    #         fig_avg = px.bar(
+    #             plot_df, x='Model', y='Avg. Evidence Count', color='Route',
+    #             barmode='stack', text='Avg. Evidence Count',
+    #             title=f"Avg Citations by Route- {selected_task} - {outcome_filter} Answers",
+    #             color_discrete_map=ROUTE_COLORS
+    #         )
+    #         fig_avg.update_traces(texttemplate='%{text:.2f}', textposition='outside', cliponaxis=False)
+    #         fig_avg.update_layout(yaxis_title="Total Avg Citations Used", margin=dict(t=50, b=50, l=50, r=50), uniformtext_minsize=8, uniformtext_mode='hide')
+    #         st.plotly_chart(fig_avg, use_container_width=True)
+        
+    #     else:
+    #         st.info(f"No '{outcome_filter}' answers to display for this selection.")
 
 # --- TAB 3: TOP EVIDENCES ---
 with tab3:
@@ -442,7 +536,7 @@ with tab3:
             df_decay = pd.DataFrame(decay_data)
             fig_decay = px.line(
                 df_decay, x="Rank", y="Avg Score", color="Model", 
-                markers=True, title="Retrieval Confidence Decay",
+                markers=True, title=f"Retrieval Confidence Decay- {selected_task}",
                 color_discrete_map=MODEL_COLORS # Use custom model colors
             )
             st.plotly_chart(fig_decay, use_container_width=True)
@@ -456,7 +550,7 @@ with tab3:
         r_df = pd.DataFrame(rank_data)
         fig_hist = px.histogram(
             r_df, x="Rank", color="Model", barmode="overlay", nbins=32, 
-            title="Evidence Rank Distribution (Complex)",
+            title=f"Evidence Rank Distribution (Complex)- {selected_task}",
             color_discrete_map=MODEL_COLORS
         )
         st.plotly_chart(fig_hist, use_container_width=True)
@@ -558,67 +652,169 @@ with tab4:
 
     st.divider()
     
-    # --- CALIBRATION CHART (Unchanged logic, updated colors) ---
-    st.subheader("📈 Evidence Score Calibration")
+    # # --- CALIBRATION CHART (Unchanged logic, updated colors) ---
+    # st.subheader("📈 Evidence Score Calibration")
+    # calib_data = []
+    # bins = [0.0, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # labels = ['< 0.60', '0.60 - 0.69', '0.70 - 0.79', '0.80 - 0.89', '> 0.90']
+    
+    # for model in selected_models:
+    #     m_df = filtered_df[filtered_df['Model'] == model].copy()
+    #     if "fake" not in selected_task: m_df = m_df[~m_df['Is Abstain']]
+        
+    #     m_df['Score Bin'] = pd.cut(m_df['Max Used Score'], bins=bins, labels=labels)
+    #     bin_stats = m_df.groupby('Score Bin', observed=False).agg(
+    #         Accuracy=('Is Correct', 'mean'), 
+    #         Count=('Is Correct', 'count')
+    #     ).reset_index()
+        
+    #     bin_stats['Accuracy'] = bin_stats['Accuracy'] * 100
+    #     bin_stats['Model'] = model
+    #     calib_data.append(bin_stats)
+        
+    # if calib_data:
+    #     calib_df = pd.concat(calib_data)
+    #     fig = go.Figure()
+        
+    #     for model in selected_models:
+    #         model_data = calib_df[calib_df['Model'] == model]
+    #         # Custom transparent bars for count
+    #         fig.add_trace(go.Bar(
+    #             x=model_data['Score Bin'], y=model_data['Count'], 
+    #             name=f"{model} (Count)", opacity=0.4, yaxis='y2',
+    #             marker_color=MODEL_COLORS.get(model)
+    #         ))
+            
+    #     for model in selected_models:
+    #         model_data = calib_df[calib_df['Model'] == model]
+    #         # Custom solid lines for accuracy
+    #         fig.add_trace(go.Scatter(
+    #             x=model_data['Score Bin'], y=model_data['Accuracy'], 
+    #             name=f"{model} (Accuracy %)", mode='lines+markers', line=dict(width=3),
+    #             marker_color=MODEL_COLORS.get(model)
+    #         ))
+            
+    #     fig.update_layout(
+    #         title=f"Accuracy vs. Max Evidence Score Bracket - {selected_task}",
+    #         xaxis_title="Max Evidence Score Bracket",
+    #         yaxis=dict(
+    #             title=dict(text="Accuracy (%)", font=dict(color="#333333")), 
+    #             range=[0, 105], 
+    #             tickfont=dict(color="#333333")
+    #         ),
+    #         yaxis2=dict(
+    #             title=dict(text="Number of Questions", font=dict(color="gray")), 
+    #             overlaying='y', 
+    #             side='right', 
+    #             showgrid=False, 
+    #             tickfont=dict(color="gray")
+    #         ),
+    #         legend=dict(x=1.1, y=1, xanchor="left", yanchor="top"),
+    #         hovermode="x unified",
+    #         margin=dict(r=150)
+    #     )
+        
+    #     st.caption("Compares the number of questions per score bracket against the model's accuracy (lines). An upward slope indicates a well-calibrated system where higher scores lead to better answers.")
+    #     st.plotly_chart(fig, use_container_width=True)
+    
+    st.divider()
+    
+    st.subheader("📈 Evidence Score Calibration (Scatter Plot)")
+    col_chart, col_text = st.columns([1, 1]) 
+    st.markdown("Plots the average accuracy for evidence scores grouped to the nearest 0.01.")
+    
     calib_data = []
-    bins = [0.0, 0.6, 0.7, 0.8, 0.9, 1.0]
-    labels = ['< 0.60', '0.60 - 0.69', '0.70 - 0.79', '0.80 - 0.89', '> 0.90']
     
     for model in selected_models:
         m_df = filtered_df[filtered_df['Model'] == model].copy()
-        if "fake" not in selected_task: m_df = m_df[~m_df['Is Abstain']]
+        if "fake" not in selected_task: 
+            m_df = m_df[~m_df['Is Abstain']]
         
-        m_df['Score Bin'] = pd.cut(m_df['Max Used Score'], bins=bins, labels=labels)
-        bin_stats = m_df.groupby('Score Bin', observed=False).agg(
+        # 1. Round to 2 decimal places to create a cloud of distinct averages
+        m_df['Rounded Score'] = m_df['Max Used Score'].round(2)
+        
+        # 2. Group by that rounded score and calculate Average Accuracy
+        score_stats = m_df.groupby('Rounded Score', observed=False).agg(
             Accuracy=('Is Correct', 'mean'), 
             Count=('Is Correct', 'count')
         ).reset_index()
         
-        bin_stats['Accuracy'] = bin_stats['Accuracy'] * 100
-        bin_stats['Model'] = model
-        calib_data.append(bin_stats)
+        score_stats['Accuracy (%)'] = score_stats['Accuracy'] * 100
+        score_stats['Model'] = model
+        calib_data.append(score_stats)
         
     if calib_data:
         calib_df = pd.concat(calib_data)
-        fig = go.Figure()
         
-        for model in selected_models:
-            model_data = calib_df[calib_df['Model'] == model]
-            # Custom transparent bars for count
-            fig.add_trace(go.Bar(
-                x=model_data['Score Bin'], y=model_data['Count'], 
-                name=f"{model} (Count)", opacity=0.3, yaxis='y2',
-                marker_color=MODEL_COLORS.get(model)
-            ))
-            
-        for model in selected_models:
-            model_data = calib_df[calib_df['Model'] == model]
-            # Custom solid lines for accuracy
-            fig.add_trace(go.Scatter(
-                x=model_data['Score Bin'], y=model_data['Accuracy'], 
-                name=f"{model} (Accuracy %)", mode='lines+markers', line=dict(width=3),
-                marker_color=MODEL_COLORS.get(model)
-            ))
-            
-        fig.update_layout(
-            title="Calibration: Accuracy vs. Max Evidence Score",
-            xaxis_title="Max Evidence Score Bracket",
-            yaxis=dict(
-                title=dict(text="Accuracy (%)", font=dict(color="#333333")), 
-                range=[0, 105], 
-                tickfont=dict(color="#333333")
-            ),
-            yaxis2=dict(
-                title=dict(text="Number of Questions", font=dict(color="gray")), 
-                overlaying='y', 
-                side='right', 
-                showgrid=False, 
-                tickfont=dict(color="gray")
-            ),
-            legend=dict(x=1.1, y=1, xanchor="left", yanchor="top"),
-            hovermode="x unified",
-            margin=dict(r=150)
+        # --- Create Scatter Plot ---
+        fig_calib = px.scatter(
+            calib_df, 
+            x="Rounded Score", 
+            y="Accuracy (%)", 
+            size="Count",          # Bigger dot = More questions got this exact score
+            color="Model",
+            opacity=0.6,           # Increased transparency so overlapping clouds are visible
+            hover_name="Model",
+            hover_data={
+                "Model": False,
+                "Rounded Score": ':.2f',
+                "Accuracy (%)": ':.1f',
+                "Count": True
+            },
+            title=f"Accuracy vs. Evidence Score (Aggregated by 0.01) - {selected_task}",
+            color_discrete_map=MODEL_COLORS,
+            size_max=20           # Limit max size so the scatter effect isn't swallowed by giant bubbles
+        )
+
+                # Apply Bold Formatting & Resize for 50% width
+        fig_calib.update_layout(
+            autosize=True,
+            width=600,  # Fixed width for the left half
+            height=400,
+            xaxis_title="Evidence Score (Rounded to 0.01)",
+            yaxis_title="Average Accuracy (%)",
+            yaxis=dict(range=[-5, 105]),
+            xaxis=dict(range=[0.35, 1.05], tickmode='linear', dtick=0.1),
+            font=dict(size=12, color="black", family="Arial"),
+            title_font=dict(size=16, weight='bold'),
+            margin=dict(t=50, b=50, l=10, r=10)
         )
         
-        st.caption("Compares the number of questions per score bracket against the model's accuracy (lines). An upward slope indicates a well-calibrated system where higher scores lead to better answers.")
-        st.plotly_chart(fig, use_container_width=True)
+        with col_chart:
+            st.plotly_chart(fig_calib, use_container_width=False) # False ensures it respects width=600
+        
+        with col_text:
+            st.markdown("### Interpretation")
+            st.write("""
+            The scatter plot shows how the retriever's confidence score correlates with actual answer accuracy:
+            - **X-Axis:** The evidence score (rounded to 0.01).
+            - **Y-Axis:** Average accuracy for all questions with that specific score.
+            - **Bubble Size:** Represents the number of questions in that score bucket.
+            
+            **What to look for:**
+            - **Positive Correlation:** As the bubble moves right (higher confidence), the accuracy should trend upward.
+            - **Density:** If many bubbles are concentrated at the higher end, your retriever is successfully finding high-quality evidence.
+            """)
+        
+        # # Apply Bold Formatting
+        # fig_calib.update_layout(
+        #     xaxis_title="Evidence Score (Rounded to 0.01)",
+        #     yaxis_title="Average Accuracy (%)",
+        #     yaxis=dict(range=[-5, 105]),
+        #     xaxis=dict(
+        #         range=[0.35, 1.05], 
+        #         tickmode='linear',
+        #         dtick=0.1
+        #     ),
+        #     font=dict(size=14, color="black", family="Arial"),
+        #     title_font=dict(size=20, weight='bold'),
+        #     xaxis_title_font=dict(size=16, weight='bold'),
+        #     xaxis_tickfont=dict(size=14, weight='bold'),
+        #     yaxis_title_font=dict(size=16, weight='bold'),
+        #     yaxis_tickfont=dict(size=14, weight='bold'),
+        #     legend=dict(title_font=dict(weight='bold'), font=dict(weight='bold')),
+        #     margin=dict(t=80, b=50)
+        # )
+        
+        # st.plotly_chart(fig_calib, use_container_width=True)
+        # st.caption("🔍 **How to read:** Every dot represents a specific evidence score (e.g., 0.84). The Y-axis is the average accuracy of all questions that received that exact score. The size of the dot shows the volume of questions. An upward-sloping 'cloud' indicates strong calibration.")
