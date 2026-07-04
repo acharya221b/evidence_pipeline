@@ -30,3 +30,7 @@ htmlcov/
 .env
 github token.txt
 outputs_new/
+diagnostics/
+outputs_final/
+output_evidence_pipeline.tar.gz
+pipeline copy.py

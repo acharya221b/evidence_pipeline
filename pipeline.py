@@ -206,19 +206,32 @@ class AsyncKGMCQPipeline:
             Options: {"0": "Diuretic", "1": "Beta-blocker", "2": "ACE Inhibitor"}
             EXAMPLE OUTPUT:
             {
-            "why_correct": "[E1] explicitly defines Atenolol as a beta-adrenergic antagonist, which is synonymous with beta-blocker.",
+            "why_correct": "Based strictly on [E1], Atenolol is defined as a beta-adrenergic antagonist, which corresponds directly to a Beta-blocker.",
             "why_others_incorrect": {
-                "0": "Diuretics function by increasing urine production, which is a different mechanism [E2].",
-                "2": "ACE Inhibitors are not mentioned in the evidence for Atenolol."
+                "0": "Evidence [E2] describes diuretics as increasing urine output, which is not the mechanism described for Atenolol in [E1].",
+                "2": "There is no evidence provided to support that Atenolol is an ACE Inhibitor."
             },
             "cop_index": "1",
             "answer": "Beta-blocker",
-            "evidence_used": ["E1", "E2"]
+            "evidence_used": ["E1"]
             }
             """
-            system_base = ("You are a medical reasoning expert system. Answer based on the 'Evidence list' provided. Give a detailed explanation of why the chosen option is correct and why the other options are not correct. Cite all the top relevant evidence IDs (e.g., [E1][E2]) used for your reasoning statements. The reasoning should match the evidence closely.")
+            
+            system_base = (
+                "You are a strict, evidence-bound medical reasoning assistant. Your ONLY source of knowledge is the 'Evidence list'.\n"
+                "RULE 1: STRICT GROUNDING. You must deduce the answer entirely from the provided evidence. Do NOT rely on your pre-trained medical knowledge to guess the answer.\n"
+                "RULE 2: ABSTENTION. If the provided evidence does not contain sufficient facts to definitively support one specific option over the others, you MUST output '-1' for cop_index.\n"
+                "RULE 3: CITATION FAITHFULNESS. You must explicitly cite the specific evidence IDs (e.g., [E1], [E2]) in your reasoning to prove your answer.\n"
+            )
 
-            output_format = ("Your output must be JSON matching this exact key order: {'why_correct': 'step-by-step reasoning with [E#] citations', 'why_others_incorrect': {'0': 'reason with [E#]', ...}, 'cop_index': 'correct index', 'answer': 'option text', 'evidence_used': ['E1', ...]}")
+            output_format = (
+                "Your output must be JSON matching this exact key order: "
+                "{'why_correct': 'Detailed explanation linking exact [E#] citations to the correct option', "
+                "'why_others_incorrect': {'0': 'Why incorrect based on evidence or lack thereof', ...}, "
+                "'cop_index': 'Correct option index (or \"-1\" if evidence is insufficient)', "
+                "'answer': 'Exact text of chosen option', "
+                "'evidence_used': ['E1', ...]}"
+            )
 
         elif "reasoning_nota" in task_name.lower():
             few_shot_examples = """

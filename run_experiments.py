@@ -5,20 +5,20 @@ import time
 # ================= CONFIGURATION =================
 # List the models you want to evaluate sequentially
 MODELS_TO_RUN = [
-    # "gemma2:27b",
-    # "phi4:14b",
-    "llama3.3:70b",
+    "gemma2:27b",
+    "phi4:14b",
+    #"llama3.3:70b",
     "deepseek-r1:14b",
-    "mistral:7b-instruct",
+    #"mistral:7b-instruct",
     "llama3.2:latest"
     
 ]
 
 # Shared parameters for the task
-CSV_PATH = "/home/macharya/dev/medkg-eval/data/reasoning_nota.csv"
-TASK_NAME = "reasoning_nota"
+CSV_PATH = "/home/macharya/dev/medkg-eval/data/reasoning_fake.csv"
+TASK_NAME = "reasoning_fake"
 WORKERS = 5
-SUBSET_SIZE = 100 #37
+SUBSET_SIZE = 37
 # =================================================
 
 def run_pipeline_for_model(model_name):
